@@ -92,6 +92,15 @@ fun GetSystemContextMenuItems(
         )
         add(
             ContextMenuItem.TextItem(
+                text = "Set All Destination",
+                iconResource = Res.drawable.menu_set_destination,
+                onClick = {
+                    autopilotController.setAllDestination(locationId ?: systemId.toLong(), systemId)
+                },
+            ),
+        )
+        add(
+            ContextMenuItem.TextItem(
                 text = "Add Waypoint",
                 onClick = {
                     autopilotController.addWaypoint(locationId ?: systemId.toLong(), systemId)
@@ -100,9 +109,25 @@ fun GetSystemContextMenuItems(
         )
         add(
             ContextMenuItem.TextItem(
+                text = "Add All Waypoint",
+                onClick = {
+                    autopilotController.addAllWaypoint(locationId ?: systemId.toLong(), systemId)
+                },
+            ),
+        )
+        add(
+            ContextMenuItem.TextItem(
                 text = "Clear Autopilot",
                 onClick = {
                     autopilotController.clearRoute()
+                },
+            ),
+        )
+        add(
+            ContextMenuItem.TextItem(
+                text = "Clear All Autopilot",
+                onClick = {
+                    autopilotController.clearAllRoute()
                 },
             ),
         )

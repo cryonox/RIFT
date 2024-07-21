@@ -1,6 +1,7 @@
 package dev.nohus.rift.autopilot
 
 import dev.nohus.rift.characters.repositories.ActiveCharacterRepository
+import dev.nohus.rift.characters.repositories.OnlineCharactersRepository
 import dev.nohus.rift.location.CharacterLocationRepository
 import dev.nohus.rift.network.esi.EsiApi
 import dev.nohus.rift.repositories.GetRouteUseCase
@@ -19,6 +20,7 @@ private val logger = KotlinLogging.logger {}
 
 @Single
 class AutopilotController(
+    private val onlineCharactersRepository: OnlineCharactersRepository,
     private val activeCharacterRepository: ActiveCharacterRepository,
     private val characterLocationRepository: CharacterLocationRepository,
     private val getRouteUseCase: GetRouteUseCase,
@@ -48,6 +50,15 @@ class AutopilotController(
         )
     }
 
+    fun addAllWaypoint(destinationId: Long, solarSystemId: Int) {
+        addAllWaypoint(
+            destinationId = destinationId,
+            solarSystemId = solarSystemId,
+            addWaypoint = true,
+            useIndividualWaypoints = settings.isUsingRiftAutopilotRoute,
+        )
+    }
+
     fun setDestination(destinationId: Long, solarSystemId: Int) {
         addWaypoint(
             destinationId = destinationId,
@@ -57,11 +68,76 @@ class AutopilotController(
         )
     }
 
+    fun setAllDestination(destinationId: Long, solarSystemId: Int) {
+        addAllWaypoint(
+            destinationId = destinationId,
+            solarSystemId = solarSystemId,
+            addWaypoint = false,
+            useIndividualWaypoints = settings.isUsingRiftAutopilotRoute,
+        )
+    }
+
+    fun clearAllRoute() {
+        val activeCharacterId = activeCharacterRepository.activeCharacter.value ?: return
+        val currentSystemId = characterLocationRepository.locations.value[activeCharacterId]?.solarSystemId ?: return
+        addAllWaypoint(destinationId = currentSystemId.toLong(), solarSystemId = currentSystemId, addWaypoint = false, useIndividualWaypoints = false)
+        _activeRoutes.value -= activeCharacterId
+    }
     fun clearRoute() {
         val activeCharacterId = activeCharacterRepository.activeCharacter.value ?: return
         val currentSystemId = characterLocationRepository.locations.value[activeCharacterId]?.solarSystemId ?: return
         addWaypoint(destinationId = currentSystemId.toLong(), solarSystemId = currentSystemId, addWaypoint = false, useIndividualWaypoints = false)
         _activeRoutes.value -= activeCharacterId
+    }
+
+    private fun addAllWaypoint(
+        destinationId: Long,
+        solarSystemId: Int,
+        addWaypoint: Boolean,
+        useIndividualWaypoints: Boolean,
+    ) = scope.launch {
+        onlineCharactersRepository.onlineCharacters.collect {
+            chars ->
+            run {
+                for(char in chars){
+                    val route = getRoute(char, solarSystemId, addWaypoint) ?: return@collect
+                    _activeRoutes.value += (char to route.full)
+
+                    if (useIndividualWaypoints) {
+                        for ((index, system) in route.appended.systems.withIndex()) {
+                            val result = esiApi.postUiAutopilotWaypoint(
+                                destinationId = system.toLong(),
+                                clearOtherWaypoints = if (index == 0) !addWaypoint else false,
+                                characterId = char,
+                            )
+                            if (result.isFailure) {
+                                logger.error { "Setting autopilot waypoint failed: $result" }
+                            }
+                            delay(100)
+                        }
+                        if (route.appended.systems.lastOrNull()?.toLong() != destinationId) {
+                            val result = esiApi.postUiAutopilotWaypoint(
+                                destinationId = destinationId,
+                                clearOtherWaypoints = false,
+                                characterId = char,
+                            )
+                            if (result.isFailure) {
+                                logger.error { "Setting autopilot waypoint failed: $result" }
+                            }
+                        }
+                    } else {
+                        val result = esiApi.postUiAutopilotWaypoint(
+                            destinationId = destinationId,
+                            clearOtherWaypoints = !addWaypoint,
+                            characterId = char,
+                        )
+                        if (result.isFailure) {
+                            logger.error { "Setting autopilot waypoint failed: $result" }
+                        }
+                    }
+                }
+            }
+        }
     }
 
     private fun addWaypoint(
