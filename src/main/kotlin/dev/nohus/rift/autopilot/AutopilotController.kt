@@ -77,11 +77,24 @@ class AutopilotController(
         )
     }
 
-    fun clearAllRoute() {
-        val activeCharacterId = activeCharacterRepository.activeCharacter.value ?: return
-        val currentSystemId = characterLocationRepository.locations.value[activeCharacterId]?.solarSystemId ?: return
-        addAllWaypoint(destinationId = currentSystemId.toLong(), solarSystemId = currentSystemId, addWaypoint = false, useIndividualWaypoints = false)
-        _activeRoutes.value -= activeCharacterId
+    fun clearAllRoute() = scope.launch {
+
+        onlineCharactersRepository.onlineCharacters.collect { chars ->
+            run {
+                for(char in chars) {
+                    val charSystemId = characterLocationRepository.locations.value[char]?.solarSystemId ?: return@collect
+                    val result = esiApi.postUiAutopilotWaypoint(
+                        destinationId = charSystemId.toLong(),
+                        clearOtherWaypoints = true,
+                        characterId = char,
+                    )
+                    if (result.isFailure) {
+                        logger.error { "Setting autopilot waypoint failed: $result" }
+                    }
+                    _activeRoutes.value -= char
+                }
+            }
+        }
     }
     fun clearRoute() {
         val activeCharacterId = activeCharacterRepository.activeCharacter.value ?: return
